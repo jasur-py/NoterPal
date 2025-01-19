@@ -1,11 +1,10 @@
 const bubbleContainer = document.getElementById('bubbleContainer');
 const settingsButton = document.querySelector('.settings-button');
 const settingsPanel = document.getElementById('settingsPanel');
+const searchBox = document.querySelector('.search-box');
 const bgColorPicker = document.getElementById('bgColor');
 const bubbleColorPicker = document.getElementById('bubbleColor');
 const textColorPicker = document.getElementById('textColor');
-const importButton = document.querySelector('.import-button');
-
 let port;
 let settings = {
     backgroundColor: '#292a2d',
@@ -18,6 +17,67 @@ settingsButton.addEventListener('click', () => {
     settingsPanel.classList.toggle('show');
     settingsButton.classList.toggle('active');
 });
+
+// Search functionality
+searchBox.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    const bubbles = document.querySelectorAll('.text-bubble');
+    
+    bubbles.forEach(bubble => {
+        const textarea = bubble.querySelector('textarea');
+        const text = textarea.value.toLowerCase();
+        
+        if (searchTerm === '') {
+            bubble.style.display = 'block';
+            bubble.style.animation = 'fadeIn 0.3s ease-in-out';
+            // Clear highlight
+            textarea.style.display = 'block';
+            const highlightDiv = bubble.querySelector('.search-highlight');
+            if (highlightDiv) {
+                highlightDiv.remove();
+            }
+        } else {
+            const hasMatch = text.includes(searchTerm);
+            if (hasMatch) {
+                bubble.style.display = 'block';
+                bubble.style.animation = 'fadeIn 0.3s ease-in-out';
+                highlightSearchTerm(bubble, searchTerm);
+            } else {
+                bubble.style.display = 'none';
+            }
+        }
+    });
+});
+
+function highlightSearchTerm(bubble, searchTerm) {
+    const textarea = bubble.querySelector('textarea');
+    const text = textarea.value;
+    
+    // Remove existing highlight div if exists
+    let highlightDiv = bubble.querySelector('.search-highlight');
+    if (highlightDiv) {
+        highlightDiv.remove();
+    }
+    
+    if (searchTerm === '') {
+        textarea.style.display = 'block';
+        return;
+    }
+    
+    // Create new highlight div
+    highlightDiv = document.createElement('div');
+    highlightDiv.className = 'search-highlight';
+    
+    // Show highlighted text
+    const highlightedText = text.replace(new RegExp(searchTerm, 'gi'), match => 
+        `<mark class="highlight">${match}</mark>`
+    );
+    highlightDiv.innerHTML = highlightedText;
+    highlightDiv.style.display = 'block';
+    textarea.style.display = 'none';
+    
+    bubble.insertBefore(highlightDiv, textarea);
+}
 
 // Load settings from storage
 async function loadSettings() {
@@ -71,50 +131,19 @@ textColorPicker.addEventListener('change', (e) => {
     saveSettings();
 });
 
-// Import functionality
-importButton.addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (importedData.bubbles) {
-                        await chrome.storage.local.set({ bubbles: importedData.bubbles });
-                        loadBubbles();
-                    }
-                } catch (error) {
-                    console.error('Failed to import notes:', error);
-                    // You might want to add user feedback here
-                }
-            };
-            reader.readAsText(file);
-        }
-    };
-    
-    input.click();
-});
+function adjustTextareaHeight(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 300) + 'px';
+}
 
 // Load and save bubbles
 async function saveBubbles() {
     const bubbles = [];
-    document.querySelectorAll('.text-bubble, .screenshot-bubble').forEach(bubble => {
-        if (bubble.classList.contains('text-bubble')) {
-            bubbles.push({
-                type: 'text',
-                content: bubble.querySelector('textarea').value
-            });
-        } else {
-            bubbles.push({
-                type: 'screenshot',
-                content: bubble.querySelector('canvas').toDataURL()
-            });
-        }
+    document.querySelectorAll('.text-bubble').forEach(bubble => {
+        bubbles.push({
+            type: 'text',
+            content: bubble.querySelector('textarea').value
+        });
     });
     
     try {
@@ -127,24 +156,12 @@ async function saveBubbles() {
 async function loadBubbles() {
     try {
         const result = await chrome.storage.local.get('bubbles');
-        // Clear existing bubbles before loading
         bubbleContainer.innerHTML = '';
         
         if (result.bubbles) {
             result.bubbles.reverse().forEach(bubble => {
                 if (bubble.type === 'text') {
                     createTextBubble(bubble.content);
-                } else {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-                        createScreenshotBubble(canvas);
-                    };
-                    img.src = bubble.content;
                 }
             });
         }
@@ -160,8 +177,6 @@ function connectToBackground() {
         port.onMessage.addListener((message) => {
             if (message.type === 'ADD_TEXT_BUBBLE') {
                 createTextBubble(message.text);
-            } else if (message.type === 'ADD_SCREENSHOT_BUBBLE') {
-                createScreenshotBubble(message.imageData, message.area);
             }
         });
 
@@ -174,17 +189,78 @@ function connectToBackground() {
     }
 }
 
+function addDragListeners(bubble) {
+    bubble.draggable = true;
+    
+    const dragHandle = document.createElement('span');
+    dragHandle.className = 'drag-handle';
+    dragHandle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+    bubble.appendChild(dragHandle);
+
+    bubble.addEventListener('dragstart', (e) => {
+        bubble.classList.add('bubble-dragging');
+        e.dataTransfer.setData('text/plain', bubble.dataset.bubbleId);
+        e.dataTransfer.effectAllowed = 'move';
+    });
+
+    bubble.addEventListener('dragend', () => {
+        bubble.classList.remove('bubble-dragging');
+        document.querySelectorAll('.text-bubble').forEach(b => {
+            b.classList.remove('bubble-drag-over');
+        });
+    });
+
+    bubble.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const draggingBubble = document.querySelector('.bubble-dragging');
+        if (draggingBubble !== bubble) {
+            bubble.classList.add('bubble-drag-over');
+        }
+    });
+
+    bubble.addEventListener('dragleave', () => {
+        bubble.classList.remove('bubble-drag-over');
+    });
+
+    bubble.addEventListener('drop', (e) => {
+        e.preventDefault();
+        bubble.classList.remove('bubble-drag-over');
+        
+        const draggedBubbleId = e.dataTransfer.getData('text/plain');
+        const draggedBubble = document.querySelector(`[data-bubble-id="${draggedBubbleId}"]`);
+        
+        if (draggedBubble && draggedBubble !== bubble) {
+            const rect = bubble.getBoundingClientRect();
+            const dropY = e.clientY;
+            const bubbleMiddleY = rect.top + rect.height / 2;
+            
+            if (dropY < bubbleMiddleY) {
+                bubble.parentNode.insertBefore(draggedBubble, bubble);
+            } else {
+                bubble.parentNode.insertBefore(draggedBubble, bubble.nextSibling);
+            }
+            saveBubbles();
+        }
+    });
+}
+
+let bubbleCounter = 0;
+
 function createTextBubble(text) {
     const bubble = document.createElement('div');
     bubble.className = 'text-bubble';
+    bubble.dataset.bubbleId = `bubble-${bubbleCounter++}`;
     
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.spellcheck = false;
     textarea.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = this.scrollHeight + 'px';
+        adjustTextareaHeight(this);
         saveBubbles();
+        // Reset search if active
+        if (searchBox.value.trim()) {
+            searchBox.dispatchEvent(new Event('input'));
+        }
     });
 
     const deleteButton = document.createElement('button');
@@ -198,51 +274,14 @@ function createTextBubble(text) {
 
     bubble.appendChild(textarea);
     bubble.appendChild(deleteButton);
+    addDragListeners(bubble);
     bubbleContainer.prepend(bubble);
 
-    textarea.style.height = 'auto';
-    textarea.style.height = textarea.scrollHeight + 'px';
-    saveBubbles();
-}
-
-function createScreenshotBubble(imageData, area) {
-    const bubble = document.createElement('div');
-    bubble.className = 'screenshot-bubble';
-    
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    if (imageData instanceof HTMLCanvasElement) {
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
-        ctx.drawImage(imageData, 0, 0);
-    } else {
-        const img = new Image();
-        img.onload = () => {
-            canvas.width = area.width;
-            canvas.height = area.height;
-            ctx.drawImage(
-                img,
-                area.x, area.y, area.width, area.height,
-                0, 0, area.width, area.height
-            );
-            saveBubbles();
-        };
-        img.src = imageData;
-    }
-    
-    const deleteButton = document.createElement('button');
-    deleteButton.className = 'delete-button';
-    deleteButton.innerHTML = '<i class="fas fa-times"></i>';
-    deleteButton.title = 'Delete';
-    deleteButton.addEventListener('click', () => {
-        bubble.remove();
-        saveBubbles();
+    // Set initial height after appending
+    requestAnimationFrame(() => {
+        adjustTextareaHeight(textarea);
     });
-
-    bubble.appendChild(canvas);
-    bubble.appendChild(deleteButton);
-    bubbleContainer.prepend(bubble);
+    saveBubbles();
 }
 
 // Initialize

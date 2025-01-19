@@ -1,72 +1,62 @@
 let connections = new Set();
-let contentScriptPorts = new Set();
 
-// Handle connection from side panel
 chrome.runtime.onConnect.addListener(function(port) {
     if (port.name === 'sidepanel') {
         connections.add(port);
-        
         port.onDisconnect.addListener(function() {
             connections.delete(port);
         });
-    } else if (port.name === 'content-script') {
-        contentScriptPorts.add(port);
-        
-        port.onDisconnect.addListener(function() {
-            contentScriptPorts.delete(port);
-        });
     }
 });
 
-// Set up side panel behavior
 chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error(error));
+    .catch((error) => console.error('Error setting panel behavior:', error));
 
-// Handle messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    try {
-        if (request.type === 'PING') {
-            sendResponse({ status: 'alive' });
-        } else if (request.type === 'SELECTED_TEXT') {
-            for (let port of connections) {
-                port.postMessage({
-                    type: 'ADD_TEXT_BUBBLE',
-                    text: request.text
-                });
-            }
-            sendResponse({ status: 'success' });
-        } else if (request.type === 'CAPTURE_SCREENSHOT') {
-            chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
-                for (let port of connections) {
-                    port.postMessage({
-                        type: 'ADD_SCREENSHOT_BUBBLE',
-                        imageData: dataUrl,
-                        area: request.area
-                    });
-                }
-                sendResponse({ status: 'success' });
+    if (request.type === 'SELECTED_TEXT') {
+        for (let port of connections) {
+            port.postMessage({
+                type: 'ADD_TEXT_BUBBLE',
+                text: request.text
             });
         }
-    } catch (error) {
-        console.error('Error in message handler:', error);
-        sendResponse({ status: 'error', message: error.message });
+        sendResponse({ status: 'success' });
     }
-    return true; // Indicate async response
+    return true;
 });
 
-// Periodic check of content script connections
-setInterval(() => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-            chrome.tabs.sendMessage(tabs[0].id, { type: 'CHECK_CONNECTION' })
-                .catch(() => {
-                    // If content script doesn't respond, it might need reinjection
-                    chrome.scripting.executeScript({
-                        target: { tabId: tabs[0].id },
-                        files: ['content.js']
-                    }).catch(console.error);
-                });
+// Check if content script needs injection
+async function checkContentScript(tabId) {
+    try {
+        await chrome.tabs.sendMessage(tabId, { type: 'CHECK_CONNECTION' });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// Inject content script if needed
+async function injectContentScript(tabId) {
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+        });
+        return true;
+    } catch (error) {
+        console.error('Content script injection failed:', error);
+        return false;
+    }
+}
+
+// Periodic content script check
+setInterval(async () => {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs[0]) {
+        const hasContentScript = await checkContentScript(tabs[0].id);
+        if (!hasContentScript) {
+            await injectContentScript(tabs[0].id);
         }
-    });
-}, 60000); // Check every minute
+    }
+}, 60000);
