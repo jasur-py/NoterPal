@@ -288,6 +288,41 @@
             box-shadow: 0 0 0 1px #8ab4f8;
         }
 
+        .bubble-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 200px;
+            position: relative;
+        }
+
+        .bubble-container.drag-over {
+            border: 2px dashed #8ab4f8;
+            background-color: rgba(138, 180, 248, 0.1);
+            border-radius: 12px;
+        }
+
+        .image-bubble {
+            position: relative;
+            background-color: var(--bubble-color);
+            border-radius: 12px;
+            padding: 16px;
+            padding-right: 40px;
+            animation: fadeIn 0.3s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            user-select: none;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .image-bubble img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            object-fit: contain;
+            max-height: 300px;
+        }
 
     </style>
 </head>

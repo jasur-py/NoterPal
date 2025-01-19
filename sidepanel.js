@@ -79,6 +79,76 @@ function highlightSearchTerm(bubble, searchTerm) {
     bubble.insertBefore(highlightDiv, textarea);
 }
 
+// Drag and drop for images
+function setupDragAndDrop() {
+    bubbleContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        bubbleContainer.classList.add('drag-over');
+    });
+
+    bubbleContainer.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        bubbleContainer.classList.remove('drag-over');
+    });
+
+    bubbleContainer.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        bubbleContainer.classList.remove('drag-over');
+
+        const files = Array.from(e.dataTransfer.files);
+        const imageFiles = files.filter(file => 
+            file.type === 'image/jpeg' || 
+            file.type === 'image/png'
+        );
+
+        for (const file of imageFiles) {
+            try {
+                const imageData = await readFileAsDataURL(file);
+                createImageBubble(imageData);
+            } catch (error) {
+                console.error('Error processing image:', error);
+            }
+        }
+    });
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function createImageBubble(imageData) {
+    const bubble = document.createElement('div');
+    bubble.className = 'image-bubble';
+    bubble.dataset.bubbleId = `bubble-${bubbleCounter++}`;
+    
+    const img = document.createElement('img');
+    img.src = imageData;
+    img.alt = 'Uploaded image';
+    
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'delete-button';
+    deleteButton.innerHTML = '<i class="fas fa-times"></i>';
+    deleteButton.title = 'Delete';
+    deleteButton.addEventListener('click', () => {
+        bubble.remove();
+        saveBubbles();
+    });
+
+    bubble.appendChild(img);
+    bubble.appendChild(deleteButton);
+    addDragListeners(bubble);
+    bubbleContainer.prepend(bubble);
+    saveBubbles();
+}
+
 // Load settings from storage
 async function loadSettings() {
     try {
@@ -139,11 +209,18 @@ function adjustTextareaHeight(textarea) {
 // Load and save bubbles
 async function saveBubbles() {
     const bubbles = [];
-    document.querySelectorAll('.text-bubble').forEach(bubble => {
-        bubbles.push({
-            type: 'text',
-            content: bubble.querySelector('textarea').value
-        });
+    document.querySelectorAll('.text-bubble, .image-bubble').forEach(bubble => {
+        if (bubble.classList.contains('text-bubble')) {
+            bubbles.push({
+                type: 'text',
+                content: bubble.querySelector('textarea').value
+            });
+        } else if (bubble.classList.contains('image-bubble')) {
+            bubbles.push({
+                type: 'image',
+                content: bubble.querySelector('img').src
+            });
+        }
     });
     
     try {
@@ -162,6 +239,8 @@ async function loadBubbles() {
             result.bubbles.reverse().forEach(bubble => {
                 if (bubble.type === 'text') {
                     createTextBubble(bubble.content);
+                } else if (bubble.type === 'image') {
+                    createImageBubble(bubble.content);
                 }
             });
         }
@@ -205,7 +284,7 @@ function addDragListeners(bubble) {
 
     bubble.addEventListener('dragend', () => {
         bubble.classList.remove('bubble-dragging');
-        document.querySelectorAll('.text-bubble').forEach(b => {
+        document.querySelectorAll('.text-bubble, .image-bubble').forEach(b => {
             b.classList.remove('bubble-drag-over');
         });
     });
@@ -289,4 +368,5 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     loadBubbles();
     connectToBackground();
+    setupDragAndDrop();
 });
